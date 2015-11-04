@@ -49,7 +49,7 @@ Usage:
 -------------
 The solver can be used in distributed systems. For that, first start the manager script, which implements the algorithm and handles the work distribution.
 Make sure that the chosen IP and Port combination is reachable from all other used systems.
-
+```
 usage: deimmunization_manager.py [-h] [--grid GRID] --port PORT
                                  [--approximate APPROXIMATE] [--key KEY]
                                  --output OUTPUT [--resolve RESOLVE]
@@ -67,9 +67,11 @@ Arguments:
                         Solution output as pickel
   --resolve RESOLVE, -r RESOLVE
                         Reinitialize with partial solution
+```
 
 After initializing the manager process, one can start multiple worker processes on the same or distributed machines. The worker process connects to the manager process via TCP/IP at the specified port (must be the same as the one the manager listens at) and obtains single work packages from the manager process. Using the flag -r (--resolve) one can specify a intermediate solution and refine or restart the solving process from there. The specified intermediate solution must be a pickled list of Solution objects.
 
+```
 usage: deimmunization_worker.py [-h] --input INPUT1 INPUT2 --masterip MASTERIP
                                 --port PORT --authkey AUTHKEY --threads
                                 THREADS
@@ -87,6 +89,7 @@ Arguments:
                         authentication key
   --threads THREADS, -t THREADS
                         nof of core
+```
 
 INPUT1 and INPUT2 are single-objective files (in CPLEX compatible formats) of the bi-objective problems, each containing one of the objective function and all constraints of the bi-objective problem. 
 
