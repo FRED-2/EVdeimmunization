@@ -10,7 +10,7 @@ class ParetoFilter(object):
         See: Messac et al. 2003
     """
     @staticmethod
-    def filter(solutions):
+    def filter(solutions, rel_tol=1e-05, abs_tol=0.0001):
         """
             this function filters a list of solutions for globally pareto optimal points
 
@@ -18,33 +18,37 @@ class ParetoFilter(object):
             @type solutions: Solution
             @return: A list of global pareto optimal solutions
         """
-        global_sols = []
-        m = len(solutions)
-
-        for i in xrange(m):
-            is_global = True
-            zi = solutions[i]
-            for j in xrange(m):
-                if i == j:
-                    continue
-
-                zj = solutions[j]
-                if not zi == zj and all(numpy.greater_equal(zi.objs, zj.objs)):
-                    is_global = False
-                    break
-
-            if is_global:
-                global_sols.append(zi)
-
+        solutions.sort()
+        isclose=lambda a,b: abs(a-b) <= max(rel_tol * max(abs(a), abs(b)), abs_tol)
         g_sol = []
-        for i in xrange(len(global_sols)):
+        for i in xrange(len(solutions)-1):
             duplicate = False
-            for j in xrange(i+1, len(global_sols)):
-                if numpy.allclose(global_sols[i].objs, global_sols[j].objs, rtol=1e-02, atol=1e-06):
+            for j in xrange(i+1, len(solutions)):
+                if all(isclose(a,b) for a,b in itertools.izip(solutions[i].objs,solutions[j].objs)):
+                    print "z1=",solutions[i].objs," equal to ",solutions[j].objs
                     duplicate = True
                     break
 
             if not duplicate:
-                g_sol.append(global_sols[i])
+                g_sol.append(solutions[i])
+        g_sol.append(solutions[-1])
 
-        return g_sol
+        m = len(g_sol)
+        final=[]
+        for i in xrange(m):
+            is_global = True
+            zi = g_sol[i]
+            for j in xrange(m):
+                if i == j:
+                    continue
+
+                zj = g_sol[j]
+                if all(numpy.greater_equal(zi.objs, zj.objs)):
+                    print "z1=",zi.objs," is exlcuded due to:",zj.objs
+                    is_global = False
+                    break
+
+            if is_global:
+                final.append(zi)
+
+        return final

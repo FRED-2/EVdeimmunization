@@ -4,7 +4,6 @@ import sys
 import cplex
 import numpy
 import argparse
-import ConfigParser
 import time 
 from multiprocessing.managers import SyncManager
 from utility import Solution
@@ -13,13 +12,23 @@ import time
 
 class RectangleSplittingWorker(object):
 
-    def __init__(self, z1_name, z2_name, biob_cons, inter_vars, port, authkey, ip, nof_cpu=6, has_constraints=False):
+    def __init__(self, z1_name, z2_name, biob_cons, inter_vars, port, authkey, ip, nof_cpu=6, has_constraints=False, verbose=0):
         z1 = cplex.Cplex(z1_name)
         z2 = cplex.Cplex(z2_name)
         z1.parameters.threads.set(int(nof_cpu))
         z2.parameters.threads.set(int(nof_cpu))
 
+        if not verbose:
+            z1.set_log_stream(None)
+            z1.set_error_stream(None)
+            z1.set_warning_stream(None)
+            z1.set_results_stream(None)
+            z2.set_log_stream(None)
+            z2.set_error_stream(None)
+            z2.set_warning_stream(None)
+            z2.set_results_stream(None)
 
+        self.verbose=verbose
         self.manager = self.__make_client_manager(port, authkey, ip)
         self._models = (z1, z2)
         self._changeable_constraints = biob_cons
@@ -28,8 +37,8 @@ class RectangleSplittingWorker(object):
         self.task_q = self.manager.get_task_q()
         self.done_q = self.manager.get_done_q()
 
-
-        print "Modify model for solving"
+        if verbose:
+            print "Modify model for solving"
         #c=1
         
         '''
@@ -39,10 +48,7 @@ class RectangleSplittingWorker(object):
         s = time.time()
         if not has_constraints:
            
-
             allclose = numpy.allclose
-            get_indices1 = z1.variables.get_indices
-            get_indices2 = z2.variables.get_indices
             z1_obj_val = { k:v for k,v in itertools.izip(self._variables[0],z1.objective.get_linear()) if not allclose(v, 0)}
             z2_obj_val = { k:v for k,v in itertools.izip(self._variables[1],z2.objective.get_linear()) if not allclose(v, 0)}    
 
@@ -50,9 +56,9 @@ class RectangleSplittingWorker(object):
             z1.linear_constraints.add(lin_expr=[cplex.SparsePair(ind=z2_obj_val.keys(), val=z2_obj_val.values())], senses=["L"], rhs=[0.0], range_values=[0], names=[biob_cons[0]])
             z2.linear_constraints.add(lin_expr=[cplex.SparsePair(ind=z1_obj_val.keys(), val=z1_obj_val.values())], senses=["L"], rhs=[0.0], names=[biob_cons[1]])
 
-
-        e = time.time()
-        print "Construction took: ",e-s
+        if verbose:
+            e = time.time()
+            print "Construction took: ",e-s
         #sys.exit()
         #run the worker
         self.run()
@@ -73,7 +79,8 @@ class RectangleSplittingWorker(object):
         manager = ServerQueueManager(address=(ip, port), authkey=authkey)
         manager.connect()
 
-        print 'Client connected to %s:%s' % (ip, port)
+        if self.verbose:
+            print 'Client connected to %s:%s' % (ip, port)
         return manager
 
     def _lexmin(self, z1_idx, z2_idx, boundary,  warmstart=None, effort_level=0):
@@ -118,7 +125,7 @@ class RectangleSplittingWorker(object):
         if len(self._inter_variables) > 0:
             inter_vars = {k:v for v, k in itertools.izip(z2.solution.get_values(self._inter_variables),
                                                          self._inter_variables)
-                          if numpy.greater(v, 0.0) }
+                          if 0.9<=v<=1.02 }
         s = Solution(objs, inter_vars)
 
         return s, z2_hat_values
@@ -131,23 +138,19 @@ class RectangleSplittingWorker(object):
                 self.task_q.task_done()
                 sys.exit()
 
-            print "solving ",z1_idx, " in recangle ", rectangle, " with boundary ",boundary
-            if z1_idx:
+            if self.verbose:
+                print "solving ",z1_idx, " in recangle ", rectangle, " with boundary ",boundary
+
+            try:
                 sol, warm = self._lexmin(z1_idx, z2_idx, boundary,  warmstart=warmst[0], effort_level=0)
-                try:
+                if z1_idx:
                     self.done_q.put((z1_idx, sol, [warmst[0], warm], rectangle))
-                except IOError as e:
-                    print "An error has occured or the server is shut-down: ",e
-                    print "Shutting down...."
-                    sys.exit()            
-            else:
-                sol, warm = self._lexmin(z1_idx, z2_idx, boundary,  warmstart=warmst[1], effort_level=0)
-                try:
+                else:
                     self.done_q.put((z1_idx, sol, [warm, warmst[1]], rectangle))
-                except IOError as e:
-                    print "An error has occured or the server is shut-down: ",e
-                    print "Shutting down...."
-                    sys.exit()
+            except Exception as e:
+                print "An error has occured or the server is shut-down: ",e
+                print "Shutting down...."
+                sys.exit()            
             self.task_q.task_done()
 
 
@@ -157,6 +160,7 @@ if __name__ == "__main__":
                       required=True,
                       nargs=2,
                       help="model files ")
+
     parser.add_argument('--masterip','-m',
                       required=True,
                       help="The IP of the master node"
@@ -167,8 +171,15 @@ if __name__ == "__main__":
                       help="port to connect"
                       )
     parser.add_argument('--authkey','-a',
-                      required=True,
+                      default="rectangle",
+                      required=False,
                       help="authentication key"
+                      )
+    parser.add_argument('--verbose','-v',
+                      default=0,
+                      type=int,
+                      required=False,
+                      help="verbosity"
                       )
     parser.add_argument('--threads','-t',
                       type=int,
@@ -179,7 +190,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     worker = RectangleSplittingWorker(args.input[0], args.input[1],
                                       ["z2_cons", "z1_cons"],["x","y"], args.port, args.authkey,
-                                      args.masterip, args.threads, False)
+                                      args.masterip, args.threads, False, args.verbose)
 
     sys.exit()
 
